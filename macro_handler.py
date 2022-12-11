@@ -43,7 +43,6 @@
 #   }
 # }
 
-from pynput.keyboard import Key, Controller, Listener
 import Quartz
 import signal
 import sys
@@ -53,7 +52,6 @@ from AppKit import NSWorkspace
 import json
 import os
 import time
-from datetime import datetime
 import logging
 import run
 
@@ -116,18 +114,23 @@ class KeyRequestHandler(socketserver.StreamRequestHandler):
 def tcp_server():
     global settings
 
-    server = socketserver.TCPServer(("127.0.0.1", settings['port']), KeyRequestHandler)
-    server.serve_forever()
+    try:
+        server = socketserver.TCPServer(("127.0.0.1", settings['port']), KeyRequestHandler)
+        server.serve_forever()
+    except:
+        logging.exception("tcp_server")
 
 def start_server():
-    daemon = threading.Thread(target = tcp_server)
-    daemon.daemon = True
-    daemon.start()
+    try:
+        daemon = threading.Thread(target = tcp_server)
+        daemon.daemon = True
+        daemon.start()
+    except:
+        logging.exception("start_server")
 
 # Keyboard handling
 
 last_key = -1 # Only modified in one place. Thread safe?
-keyboard = Controller()
 utimer = None
 modifiers = 0
 
@@ -196,8 +199,6 @@ def send_key_press(s):
     send_key_event(s, Quartz.kCGEventKeyUp)
 
 def send_key_event(s, etype):
-    global keyboard
-
     a = ''.join(list(filter(lambda ch : ch in FILTER, s.lower()))).split('+')
     if etype == Quartz.kCGEventKeyUp:
         a.reverse()
@@ -223,7 +224,7 @@ def parse_flags(flags):
         res += 8000
     return res
 
-def darwin(etype, event):
+def keyCallback(proxy, etype, event, refcon):
     global last_key
     global utimer
 
@@ -264,7 +265,6 @@ def darwin(etype, event):
         logging.exception("darwin")
 
 def main():
-    global keyboard
     global settings
 
     logging.info('Starting')
@@ -275,10 +275,23 @@ def main():
     set_sigmals()
     start_server()
 
-    keyboard = Controller()
-
-    with Listener(darwin_intercept = darwin) as listener:
-        listener.join()
+    tap = Quartz.CGEventTapCreate(
+        Quartz.kCGSessionEventTap,
+        Quartz.kCGHeadInsertEventTap,
+        Quartz.kCGEventTapOptionDefault,
+        Quartz.CGEventMaskBit(Quartz.kCGEventKeyDown) |
+            Quartz.CGEventMaskBit(Quartz.kCGEventKeyUp) |
+            Quartz.CGEventMaskBit(Quartz.kCGEventFlagsChanged),
+        keyCallback,
+        None
+    )
+    if tap:
+        rls = Quartz.CFMachPortCreateRunLoopSource(Quartz.kCFAllocatorDefault, tap, 0)
+        Quartz.CFRunLoopAddSource(Quartz.CFRunLoopGetCurrent(), rls, Quartz.kCFRunLoopCommonModes)
+        Quartz.CGEventTapEnable(tap, True)
+        Quartz.CFRunLoopRun()
+    else:
+        logging.error("failed to start keyboard loop.")
 
 try:
     main()
