@@ -67,24 +67,36 @@ logging.basicConfig(
     datefmt = '%Y-%m-%d %H:%M:%S',
 )
 
-def kill_previous():
-    pids = [os.getppid(), os.getpid()]
-    path = os.path.dirname(os.path.realpath(__file__)) + '/macro_handler'
-    r = run.cmd(f'ps -A | grep {path}')
-    for l in r[1].splitlines()[:-2]:
-        pid = int(l.strip().split(' ', 1)[0])
-        if pid not in pids:
-            logging.debug(f'KILLING {pid}')
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except:
-                logging.info(f'Failed to kill {pid}')
+def killall(processes, sig):
+    for pid in processes:
+        try:
+            os.kill(pid, sig)
+        except:
+            logging.debug(f'kill {pid} {sig}')
 
-    time.sleep(0.5)
+def processes(filter):
+    r = run.cmd(f'ps -A | grep {filter}')
+    pids = []
+    for l in r[1].splitlines()[:-2]:
+        pids.append(int(l.strip().split(' ', 1)[0]))
+    return pids
+
+def kill_previous():
+    path = os.path.dirname(os.path.realpath(__file__)) + '/macro_handler'
+    ownpids = [os.getppid(), os.getpid()]
+    pids = list(set(processes(path)) - set(ownpids))
+    if len(pids) > 0:
+        killall(pids, signal.SIGTERM)
+        time.sleep(0.25)
+        pids = list(set(processes(path)) - set(ownpids))
+        if len(pids) > 0:
+            killall(pids, signal.SIGKILL)
+            time.sleep(0.25)
 
 # Signals
 
 def terminate(sig, frame):
+    Quartz.CFRunLoopStop(Quartz.CFRunLoopGetCurrent())
     logging.info('Exiting')
     sys.exit(0)
 
